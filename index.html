@@ -57,6 +57,15 @@
       opacity: 0.5;
       cursor: not-allowed;
     }
+
+    #volumeControl {
+      margin-top: 15px;
+      font-size: 16px;
+    }
+
+    #volumeSlider {
+      width: 200px;
+    }
   </style>
 </head>
 <body>
@@ -71,6 +80,10 @@
 <div id="controls">
   <button id="startBtn">開始</button>
   <button id="clearBtn">清空</button>
+  <div id="volumeControl">
+    音量：
+    <input type="range" id="volumeSlider" min="0" max="1" step="0.01" value="1">
+  </div>
 </div>
 
 <audio id="sound1" src="takeBreak.mp3"></audio>
@@ -84,6 +97,7 @@
   const clearBtn = document.getElementById('clearBtn');
   const sound1 = document.getElementById('sound1');
   const sound2 = document.getElementById('sound2');
+  const volumeSlider = document.getElementById('volumeSlider');
 
   const totalSeconds = 90 * 60;
   let remainingSeconds = parseInt(localStorage.getItem('remaining')) || totalSeconds;
@@ -208,6 +222,15 @@
     timerDisplay.textContent = "尚未開始";
     drawSegmentedCircle([], totalSeconds);
   }
+
+  // 音量控制
+  sound1.volume = volumeSlider.value;
+  sound2.volume = volumeSlider.value;
+  volumeSlider.addEventListener('input', () => {
+    const volume = parseFloat(volumeSlider.value);
+    sound1.volume = volume;
+    sound2.volume = volume;
+  });
 
   startBtn.addEventListener('click', startTimer);
   clearBtn.addEventListener('click', clearAll);
