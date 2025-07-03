@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <title>90 分鐘計時器</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+
+    h1 {
+      margin-bottom: 20px;
+    }
+
+    .circle-container {
+      position: relative;
+      width: 300px;
+      height: 300px;
+    }
+
+    #progressCanvas {
+      width: 100%;
+      height: 100%;
+    }
+
+    #timer {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 36px;
+      font-weight: bold;
+    }
+
+    #controls {
+      margin-top: 30px;
+    }
+
+    button {
+      font-size: 20px;
+      margin: 10px;
+      padding: 10px 20px;
+      border: 1px solid #333;
+      background: #f9f9f9;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+
+<h1>計時器</h1>
+
+<div class="circle-container">
+  <canvas id="progressCanvas" width="300" height="300"></canvas>
+  <div id="timer">尚未開始</div>
+</div>
+
+<div id="controls">
+  <button id="startBtn">開始</button>
+  <button id="clearBtn">清空</button>
+</div>
+
+<audio id="sound1" src="takeBreak.mp3"></audio>
+<audio id="sound2" src="start.mp3"></audio>
+
+<script>
+  const canvas = document.getElementById('progressCanvas');
+  const ctx = canvas.getContext('2d');
+  const timerDisplay = document.getElementById('timer');
+  const startBtn = document.getElementById('startBtn');
+  const clearBtn = document.getElementById('clearBtn');
+  const sound1 = document.getElementById('sound1');
+  const sound2 = document.getElementById('sound2');
+
+  const totalSeconds = 90 * 60;
+  let remainingSeconds = parseInt(localStorage.getItem('remaining')) || totalSeconds;
+  let restSegments = JSON.parse(localStorage.getItem('restSegments') || '[]');
+
+  let interval = null;
+  let soundTimeout = null;
+  let isRunning = false;
+
+  function formatTime(seconds) {
+    const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+    const s = (seconds % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+  }
+
+  function drawSegmentedCircle(segments, total, radius = 130) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const center = canvas.width / 2;
+    const lineWidth = 10;
+    const fullCircle = 2 * Math.PI;
+
+    // 背景圓
+    ctx.beginPath();
+    ctx.arc(center, center, radius, 0, fullCircle);
+    ctx.strokeStyle = '#eee';
+    ctx.lineWidth = lineWidth;
+    ctx.stroke();
+
+    // 畫每段
+    for (let i = 0; i < segments.length; i++) {
+      const { start, end, color } = segments[i];
+      const angleStart = -Math.PI / 2 + fullCircle * (start / total);
+      const angleEnd = -Math.PI / 2 + fullCircle * (end / total);
+      ctx.beginPath();
+      ctx.arc(center, center, radius, angleStart, angleEnd);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = lineWidth;
+      ctx.stroke();
+    }
+  }
+
+  function updateDisplay() {
+    timerDisplay.textContent = formatTime(remainingSeconds);
+    const currentTime = totalSeconds - remainingSeconds;
+
+    // 預設整段為橘色
+    const segments = [{
+      start: 0,
+      end: currentTime,
+      color: '#FFA500'
+    }];
+
+    // 疊加綠色休息段
+    restSegments.forEach(({ start }) => {
+      const end = start + 12;
+      if (end > 0 && start < currentTime) {
+        segments.push({
+          start: Math.max(0, start),
+          end: Math.min(currentTime, end),
+          color: '#00CC66'
+        });
+      }
+    });
+
+    drawSegmentedCircle(segments, totalSeconds);
+  }
+
+  function playSoundPair() {
+    const restStart = totalSeconds - remainingSeconds;
+    restSegments.push({ start: restStart });
+    localStorage.setItem('restSegments', JSON.stringify(restSegments));
+    sound1.play();
+    setTimeout(() => {
+      sound2.play();
+    }, 12000);
+  }
+
+  function scheduleNextSound() {
+    const delay = Math.floor(Math.random() * (300 - 180 + 1)) + 180;
+    soundTimeout = setTimeout(() => {
+      playSoundPair();
+      scheduleNextSound();
+    }, delay * 1000);
+  }
+
+  function startTimer() {
+    if (isRunning) return;
+    isRunning = true;
+    startBtn.disabled = true;
+
+    scheduleNextSound();
+    interval = setInterval(() => {
+      remainingSeconds--;
+      if (remainingSeconds <= 0) {
+        clearInterval(interval);
+        clearTimeout(soundTimeout);
+        timerDisplay.textContent = "時間到！";
+        drawSegmentedCircle([{
+          start: 0,
+          end: totalSeconds,
+          color: '#00CC66'
+        }], totalSeconds);
+        localStorage.removeItem('remaining');
+        localStorage.removeItem('restSegments');
+      } else {
+        updateDisplay();
+        localStorage.setItem('remaining', remainingSeconds);
+      }
+    }, 1000);
+    updateDisplay();
+  }
+
+  function clearAll() {
+    clearInterval(interval);
+    clearTimeout(soundTimeout);
+    localStorage.removeItem('remaining');
+    localStorage.removeItem('restSegments');
+    remainingSeconds = totalSeconds;
+    restSegments = [];
+    isRunning = false;
+    startBtn.disabled = false;
+    timerDisplay.textContent = "尚未開始";
+    drawSegmentedCircle([], totalSeconds);
+  }
+
+  startBtn.addEventListener('click', startTimer);
+  clearBtn.addEventListener('click', clearAll);
+
+  // 初始化畫面
+  if (remainingSeconds < totalSeconds) {
+    updateDisplay();
+  } else {
+    drawSegmentedCircle([], totalSeconds);
+  }
+</script>
+
+</body>
+</html>
