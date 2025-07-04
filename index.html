@@ -80,6 +80,7 @@
 <div id="controls">
   <button id="startBtn">開始</button>
   <button id="clearBtn">清空</button>
+  <button id="stopBtn">停止</button>
   <div id="volumeControl">
     音量：
     <input type="range" id="volumeSlider" min="0" max="1" step="0.01" value="1">
@@ -94,6 +95,7 @@
   const ctx = canvas.getContext('2d');
   const timerDisplay = document.getElementById('timer');
   const startBtn = document.getElementById('startBtn');
+  const stopBtn = document.getElementById('stopBtn');
   const clearBtn = document.getElementById('clearBtn');
   const sound1 = document.getElementById('sound1');
   const sound2 = document.getElementById('sound2');
@@ -102,10 +104,15 @@
   const totalSeconds = 90 * 60;
   let remainingSeconds = parseInt(localStorage.getItem('remaining')) || totalSeconds;
   let restSegments = JSON.parse(localStorage.getItem('restSegments') || '[]');
-
   let interval = null;
   let soundTimeout = null;
   let isRunning = false;
+  let isPaused = false;
+
+  // 載入音量設定
+  const savedVolume = parseFloat(localStorage.getItem('volume'));
+  volumeSlider.value = isNaN(savedVolume) ? 1 : savedVolume;
+  sound1.volume = sound2.volume = volumeSlider.value;
 
   function formatTime(seconds) {
     const m = Math.floor(seconds / 60).toString().padStart(2, '0');
@@ -119,14 +126,12 @@
     const lineWidth = 10;
     const fullCircle = 2 * Math.PI;
 
-    // 背景圓
     ctx.beginPath();
     ctx.arc(center, center, radius, 0, fullCircle);
     ctx.strokeStyle = '#eee';
     ctx.lineWidth = lineWidth;
     ctx.stroke();
 
-    // 畫每段
     for (let i = 0; i < segments.length; i++) {
       const { start, end, color } = segments[i];
       const angleStart = -Math.PI / 2 + fullCircle * (start / total);
@@ -143,14 +148,12 @@
     timerDisplay.textContent = formatTime(remainingSeconds);
     const currentTime = totalSeconds - remainingSeconds;
 
-    // 預設整段為橘色
     const segments = [{
       start: 0,
       end: currentTime,
       color: '#FFA500'
     }];
 
-    // 疊加綠色休息段
     restSegments.forEach(({ start }) => {
       const end = start + 12;
       if (end > 0 && start < currentTime) {
@@ -186,7 +189,9 @@
   function startTimer() {
     if (isRunning) return;
     isRunning = true;
+    isPaused = false;
     startBtn.disabled = true;
+    stopBtn.disabled = false;
 
     scheduleNextSound();
     interval = setInterval(() => {
@@ -202,12 +207,25 @@
         }], totalSeconds);
         localStorage.removeItem('remaining');
         localStorage.removeItem('restSegments');
+        isRunning = false;
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
       } else {
         updateDisplay();
         localStorage.setItem('remaining', remainingSeconds);
       }
     }, 1000);
     updateDisplay();
+  }
+
+  function stopTimer() {
+    if (!isRunning) return;
+    clearInterval(interval);
+    clearTimeout(soundTimeout);
+    isRunning = false;
+    isPaused = true;
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
   }
 
   function clearAll() {
@@ -218,30 +236,34 @@
     remainingSeconds = totalSeconds;
     restSegments = [];
     isRunning = false;
+    isPaused = false;
     startBtn.disabled = false;
+    stopBtn.disabled = true;
     timerDisplay.textContent = "尚未開始";
     drawSegmentedCircle([], totalSeconds);
   }
 
-  // 音量控制
-  sound1.volume = volumeSlider.value;
-  sound2.volume = volumeSlider.value;
+  // 音量控制＋儲存
   volumeSlider.addEventListener('input', () => {
     const volume = parseFloat(volumeSlider.value);
     sound1.volume = volume;
     sound2.volume = volume;
+    localStorage.setItem('volume', volume.toString());
   });
 
   startBtn.addEventListener('click', startTimer);
+  stopBtn.addEventListener('click', stopTimer);
   clearBtn.addEventListener('click', clearAll);
 
   // 初始化畫面
+  stopBtn.disabled = true;
   if (remainingSeconds < totalSeconds) {
     updateDisplay();
   } else {
     drawSegmentedCircle([], totalSeconds);
   }
 </script>
+
 
 </body>
 </html>
