@@ -2,10 +2,10 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8">
-  <title>90 分鐘計時器</title>
+  <title>極簡圓心設定計時器</title>
 <style>
   body {
-    font-family: sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     text-align: center;
     margin: 0;
     padding: 0;
@@ -18,87 +18,118 @@
     color: #ffffff;
   }
 
-  h1 {
-    margin-bottom: 20px;
-    color: #ffffff;
-  }
-
   .circle-container {
     position: relative;
-    width: 300px;
-    height: 300px;
+    width: 320px;
+    height: 320px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   #progressCanvas {
+    position: absolute;
+    top: 0;
+    left: 0;
     width: 100%;
     height: 100%;
-    background-color: transparent;
   }
 
-  #timer {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    font-size: 36px;
+  /* 圓心區域容器 */
+  .timer-center {
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  /* 時間顯示與輸入框共用樣式 */
+  #timerDisplay, #durationInput {
+    font-size: 48px;
     font-weight: bold;
     color: #ffffff;
+    background: transparent;
+    border: none;
+    text-align: center;
+    width: 150px;
+    outline: none;
+    font-family: inherit;
+  }
+
+  /* 隱藏輸入框的上下箭頭 */
+  #durationInput::-webkit-inner-spin-button,
+  #durationInput::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  .unit-label {
+    font-size: 14px;
+    color: #666;
+    margin-top: -5px;
   }
 
   #controls {
-    margin-top: 30px;
+    margin-top: 40px;
   }
 
   button {
-    font-size: 20px;
-    margin: 10px;
-    padding: 10px 20px;
-    border: 1px solid #666;
+    font-size: 16px;
+    margin: 0 8px;
+    padding: 10px 24px;
+    border: 1px solid #333;
     background: #1e1e1e;
     color: #ffffff;
     cursor: pointer;
-    border-radius: 5px;
-    transition: background 0.2s;
+    border-radius: 8px;
+    transition: all 0.2s;
   }
 
   button:hover:not(:disabled) {
-    background: #333333;
+    background: #333;
+    border-color: #555;
   }
 
   button:disabled {
-    opacity: 0.5;
+    opacity: 0.3;
     cursor: not-allowed;
   }
 
   #volumeControl {
-    margin-top: 15px;
-    font-size: 16px;
-    color: #cccccc;
+    margin-top: 25px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #666;
+    font-size: 14px;
   }
 
   #volumeSlider {
-    width: 200px;
-    background: #333;
+    width: 120px;
     accent-color: #00cc66;
+    cursor: pointer;
   }
 </style>
-
 </head>
 <body>
 
-<!-- <h1>計時器</h1> -->
-
 <div class="circle-container">
-  <canvas id="progressCanvas" width="300" height="300"></canvas>
-  <div id="timer">尚未開始</div>
+  <canvas id="progressCanvas" width="320" height="320"></canvas>
+  
+  <div class="timer-center">
+    <div id="timerDisplay" style="display: none;">00:00</div>
+    <input type="number" id="durationInput" value="90" title="點擊修改分鐘">
+    <div id="unitLabel" class="unit-label">MINUTES</div>
+  </div>
 </div>
 
 <div id="controls">
   <button id="startBtn">開始</button>
   <button id="clearBtn">清空</button>
   <button id="stopBtn">停止</button>
+  
   <div id="volumeControl">
-    音量：
+    <span>音量</span>
     <input type="range" id="volumeSlider" min="0" max="1" step="0.01" value="1">
   </div>
 </div>
@@ -109,23 +140,27 @@
 <script>
   const canvas = document.getElementById('progressCanvas');
   const ctx = canvas.getContext('2d');
-  const timerDisplay = document.getElementById('timer');
+  const timerDisplay = document.getElementById('timerDisplay');
+  const durationInput = document.getElementById('durationInput');
+  const unitLabel = document.getElementById('unitLabel');
   const startBtn = document.getElementById('startBtn');
   const stopBtn = document.getElementById('stopBtn');
   const clearBtn = document.getElementById('clearBtn');
+  const volumeSlider = document.getElementById('volumeSlider');
   const sound1 = document.getElementById('sound1');
   const sound2 = document.getElementById('sound2');
-  const volumeSlider = document.getElementById('volumeSlider');
 
-  const totalSeconds = 90 * 60;
+  let totalSeconds = (parseInt(localStorage.getItem('totalSeconds')) || 90) * 60;
   let remainingSeconds = parseInt(localStorage.getItem('remaining')) || totalSeconds;
   let restSegments = JSON.parse(localStorage.getItem('restSegments') || '[]');
+  
   let interval = null;
   let soundTimeout = null;
   let isRunning = false;
   let isPaused = false;
 
-  // 載入音量設定
+  // 初始化狀態
+  durationInput.value = totalSeconds / 60;
   const savedVolume = parseFloat(localStorage.getItem('volume'));
   volumeSlider.value = isNaN(savedVolume) ? 1 : savedVolume;
   sound1.volume = sound2.volume = volumeSlider.value;
@@ -136,93 +171,71 @@
     return `${m}:${s}`;
   }
 
-  // 呼吸燈效果：每秒在 4~12 之間震盪
-let glowStart = Date.now();
+  let glowStart = Date.now();
 
-function drawSegmentedCircle(segments, total, radius = 130) {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  const center = canvas.width / 2;
-  const lineWidth = 6;
-  const fullCircle = 2 * Math.PI;
-  const elapsed = (Date.now() - glowStart) / 1000;
-  const glow = 4 + Math.sin(elapsed * 2) * 4; // 呼吸範圍 4~12
+  function drawCircle(segments, total) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const center = canvas.width / 2;
+    const radius = 140;
+    const elapsed = (Date.now() - glowStart) / 1000;
+    const glow = 4 + Math.sin(elapsed * 2) * 4;
 
-  // 背景圓
-  ctx.beginPath();
-  ctx.arc(center, center, radius, 0, fullCircle);
-  ctx.strokeStyle = '#444';
-  ctx.lineWidth = lineWidth;
-  ctx.lineCap = "round";
-  ctx.shadowColor = "transparent";
-  ctx.shadowBlur = 0;
-  ctx.stroke();
-
-  // 發光段
-  for (let i = 0; i < segments.length; i++) {
-    const { start, end, color } = segments[i];
-    const angleStart = -Math.PI / 2 + fullCircle * (start / total);
-    const angleEnd = -Math.PI / 2 + fullCircle * (end / total);
+    // 底圈
     ctx.beginPath();
-    ctx.arc(center, center, radius, angleStart, angleEnd);
-    ctx.strokeStyle = color;
-    ctx.lineWidth = lineWidth;
-    ctx.lineCap = "round";
-    ctx.shadowColor = color;
-    ctx.shadowBlur = glow; // ✅ 呼吸燈效果
+    ctx.arc(center, center, radius, 0, Math.PI * 2);
+    ctx.strokeStyle = '#252525';
+    ctx.lineWidth = 8;
     ctx.stroke();
 
-    ctx.shadowColor = "transparent";
-    ctx.shadowBlur = 0;
-  }
-}
-
-
-
-
-  function updateDisplay() {
-    timerDisplay.textContent = formatTime(remainingSeconds);
-    const currentTime = totalSeconds - remainingSeconds;
-
-    const segments = [{
-      start: 0,
-      end: currentTime,
-      color: '#FFA500'
-    }];
-
-    restSegments.forEach(({ start }) => {
-      const end = start + 12;
-      if (end > 0 && start < currentTime) {
-        segments.push({
-          start: Math.max(0, start),
-          end: Math.min(currentTime, end),
-          color: '#00CC66'
-        });
-      }
+    // 進度段
+    segments.forEach(seg => {
+      const startAngle = -Math.PI / 2 + (Math.PI * 2) * (seg.start / total);
+      const endAngle = -Math.PI / 2 + (Math.PI * 2) * (seg.end / total);
+      ctx.beginPath();
+      ctx.arc(center, center, radius, startAngle, endAngle);
+      ctx.strokeStyle = seg.color;
+      ctx.lineWidth = 8;
+      ctx.lineCap = 'round';
+      ctx.shadowColor = seg.color;
+      ctx.shadowBlur = glow;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
     });
-
-    drawSegmentedCircle(segments, totalSeconds);
   }
 
-  function playSoundPair() {
-    const restStart = totalSeconds - remainingSeconds;
-    restSegments.push({ start: restStart });
-    localStorage.setItem('restSegments', JSON.stringify(restSegments));
-    sound1.play();
-    setTimeout(() => {
-      sound2.play();
-    }, 12000);
-  }
+  function updateUI() {
+    if (isRunning || isPaused || remainingSeconds < totalSeconds) {
+      // 計時中：顯示倒數文字，隱藏輸入框
+      timerDisplay.style.display = 'block';
+      durationInput.style.display = 'none';
+      unitLabel.style.visibility = 'hidden';
+      timerDisplay.textContent = formatTime(remainingSeconds);
+    } else {
+      // 初始/清空狀態：顯示輸入框
+      timerDisplay.style.display = 'none';
+      durationInput.style.display = 'block';
+      unitLabel.style.visibility = 'visible';
+    }
 
-  function scheduleNextSound() {
-    const delay = Math.floor(Math.random() * (300 - 180 + 1)) + 180;
-    soundTimeout = setTimeout(() => {
-      playSoundPair();
-      scheduleNextSound();
-    }, delay * 1000);
+    const currentTime = totalSeconds - remainingSeconds;
+    const segments = [{ start: 0, end: currentTime, color: '#FFA500' }];
+    restSegments.forEach(s => {
+      segments.push({ start: s.start, end: Math.min(currentTime, s.start + 12), color: '#00CC66' });
+    });
+    drawCircle(segments, totalSeconds);
   }
 
   function startTimer() {
     if (isRunning) return;
+
+    if (!isPaused && remainingSeconds === totalSeconds) {
+      const mins = parseInt(durationInput.value);
+      if (isNaN(mins) || mins <= 0) return;
+      totalSeconds = mins * 60;
+      remainingSeconds = totalSeconds;
+      localStorage.setItem('totalSeconds', mins);
+    }
+
     isRunning = true;
     isPaused = false;
     startBtn.disabled = true;
@@ -233,28 +246,26 @@ function drawSegmentedCircle(segments, total, radius = 130) {
       remainingSeconds--;
       if (remainingSeconds <= 0) {
         clearInterval(interval);
-        clearTimeout(soundTimeout);
-        timerDisplay.textContent = "時間到！";
-        drawSegmentedCircle([{
-          start: 0,
-          end: totalSeconds,
-          color: '#00CC66'
-        }], totalSeconds);
-        localStorage.removeItem('remaining');
-        localStorage.removeItem('restSegments');
-        isRunning = false;
-        startBtn.disabled = false;
-        stopBtn.disabled = true;
+        clearAll();
+        alert("時間到！");
       } else {
-        updateDisplay();
         localStorage.setItem('remaining', remainingSeconds);
       }
     }, 1000);
-    updateDisplay();
+  }
+
+  function scheduleNextSound() {
+    const delay = Math.floor(Math.random() * 120) + 180; // 3-5分鐘
+    soundTimeout = setTimeout(() => {
+      restSegments.push({ start: totalSeconds - remainingSeconds });
+      localStorage.setItem('restSegments', JSON.stringify(restSegments));
+      sound1.play();
+      setTimeout(() => sound2.play(), 12000);
+      scheduleNextSound();
+    }, delay * 1000);
   }
 
   function stopTimer() {
-    if (!isRunning) return;
     clearInterval(interval);
     clearTimeout(soundTimeout);
     isRunning = false;
@@ -264,49 +275,32 @@ function drawSegmentedCircle(segments, total, radius = 130) {
   }
 
   function clearAll() {
-    clearInterval(interval);
-    clearTimeout(soundTimeout);
+    stopTimer();
     localStorage.removeItem('remaining');
     localStorage.removeItem('restSegments');
     remainingSeconds = totalSeconds;
     restSegments = [];
-    isRunning = false;
     isPaused = false;
-    startBtn.disabled = false;
-    stopBtn.disabled = true;
-    timerDisplay.textContent = "尚未開始";
-    drawSegmentedCircle([], totalSeconds);
+    updateUI();
   }
-
-  // 音量控制＋儲存
-  volumeSlider.addEventListener('input', () => {
-    const volume = parseFloat(volumeSlider.value);
-    sound1.volume = volume;
-    sound2.volume = volume;
-    localStorage.setItem('volume', volume.toString());
-  });
 
   startBtn.addEventListener('click', startTimer);
   stopBtn.addEventListener('click', stopTimer);
   clearBtn.addEventListener('click', clearAll);
+  volumeSlider.addEventListener('input', () => {
+    sound1.volume = sound2.volume = volumeSlider.value;
+    localStorage.setItem('volume', volumeSlider.value);
+  });
 
-  // 初始化畫面
-  stopBtn.disabled = true;
-  if (remainingSeconds < totalSeconds) {
-    updateDisplay();
-  } else {
-    drawSegmentedCircle([], totalSeconds);
-  }
-
+  // 動畫循環
   function animate() {
-  if (isRunning || isPaused || remainingSeconds < totalSeconds) {
-    updateDisplay();
+    updateUI();
+    requestAnimationFrame(animate);
   }
-  requestAnimationFrame(animate);
-}
-animate(); // 啟動動畫循環
+  
+  stopBtn.disabled = true;
+  animate();
 </script>
-
 
 </body>
 </html>
