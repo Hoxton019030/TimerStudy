@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8">
-  <title>極簡圓心設定計時器</title>
+  <title>極簡圓心倒數計時器</title>
 <style>
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -16,6 +16,7 @@
     min-height: 100vh;
     background-color: #121212;
     color: #ffffff;
+    overflow: hidden;
   }
 
   .circle-container {
@@ -35,7 +36,6 @@
     height: 100%;
   }
 
-  /* 圓心區域容器 */
   .timer-center {
     z-index: 10;
     display: flex;
@@ -43,7 +43,6 @@
     align-items: center;
   }
 
-  /* 時間顯示與輸入框共用樣式 */
   #timerDisplay, #durationInput {
     font-size: 48px;
     font-weight: bold;
@@ -51,12 +50,11 @@
     background: transparent;
     border: none;
     text-align: center;
-    width: 150px;
+    width: 160px;
     outline: none;
     font-family: inherit;
   }
 
-  /* 隱藏輸入框的上下箭頭 */
   #durationInput::-webkit-inner-spin-button,
   #durationInput::-webkit-outer-spin-button {
     -webkit-appearance: none;
@@ -67,6 +65,7 @@
     font-size: 14px;
     color: #666;
     margin-top: -5px;
+    letter-spacing: 2px;
   }
 
   #controls {
@@ -99,6 +98,7 @@
     margin-top: 25px;
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 10px;
     color: #666;
     font-size: 14px;
@@ -125,8 +125,8 @@
 
 <div id="controls">
   <button id="startBtn">開始</button>
-  <button id="clearBtn">清空</button>
-  <button id="stopBtn">停止</button>
+  <button id="stopBtn" disabled>暫停</button>
+  <button id="clearBtn">重置</button>
   
   <div id="volumeControl">
     <span>音量</span>
@@ -134,8 +134,7 @@
   </div>
 </div>
 
-<audio id="sound1" src="takeBreak.mp3"></audio>
-<audio id="sound2" src="start.mp3"></audio>
+<audio id="finishSound" src="takeBreak.mp3"></audio>
 
 <script>
   const canvas = document.getElementById('progressCanvas');
@@ -147,23 +146,22 @@
   const stopBtn = document.getElementById('stopBtn');
   const clearBtn = document.getElementById('clearBtn');
   const volumeSlider = document.getElementById('volumeSlider');
-  const sound1 = document.getElementById('sound1');
-  const sound2 = document.getElementById('sound2');
+  const finishSound = document.getElementById('finishSound');
 
+  // 狀態變數
   let totalSeconds = (parseInt(localStorage.getItem('totalSeconds')) || 90) * 60;
   let remainingSeconds = parseInt(localStorage.getItem('remaining')) || totalSeconds;
-  let restSegments = JSON.parse(localStorage.getItem('restSegments') || '[]');
-  
   let interval = null;
-  let soundTimeout = null;
   let isRunning = false;
   let isPaused = false;
 
-  // 初始化狀態
+  // 初始化音量與輸入框
   durationInput.value = totalSeconds / 60;
-  const savedVolume = parseFloat(localStorage.getItem('volume'));
-  volumeSlider.value = isNaN(savedVolume) ? 1 : savedVolume;
-  sound1.volume = sound2.volume = volumeSlider.value;
+  const savedVolume = localStorage.getItem('volume');
+  if (savedVolume !== null) {
+    volumeSlider.value = savedVolume;
+    finishSound.volume = savedVolume;
+  }
 
   function formatTime(seconds) {
     const m = Math.floor(seconds / 60).toString().padStart(2, '0');
@@ -171,66 +169,68 @@
     return `${m}:${s}`;
   }
 
-  let glowStart = Date.now();
-
-  function drawCircle(segments, total) {
+  function drawCircle() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const center = canvas.width / 2;
     const radius = 140;
-    const elapsed = (Date.now() - glowStart) / 1000;
-    const glow = 4 + Math.sin(elapsed * 2) * 4;
+    
+    // 計算進度比例 (0 到 1)
+    const progress = remainingSeconds / totalSeconds;
 
-    // 底圈
+    // 1. 底圈 (深灰色)
     ctx.beginPath();
     ctx.arc(center, center, radius, 0, Math.PI * 2);
     ctx.strokeStyle = '#252525';
     ctx.lineWidth = 8;
     ctx.stroke();
 
-    // 進度段
-    segments.forEach(seg => {
-      const startAngle = -Math.PI / 2 + (Math.PI * 2) * (seg.start / total);
-      const endAngle = -Math.PI / 2 + (Math.PI * 2) * (seg.end / total);
+    // 2. 進度條 (橘色) - 順時針縮短
+    if (remainingSeconds > 0) {
+      const startAngle = -Math.PI / 2;
+      const endAngle = -Math.PI / 2 + (Math.PI * 2 * progress);
+      
       ctx.beginPath();
       ctx.arc(center, center, radius, startAngle, endAngle);
-      ctx.strokeStyle = seg.color;
-      ctx.lineWidth = 8;
+      ctx.strokeStyle = '#FFA500';
+      ctx.lineWidth = 10;
       ctx.lineCap = 'round';
-      ctx.shadowColor = seg.color;
-      ctx.shadowBlur = glow;
+      
+      // 光暈效果
+      ctx.shadowColor = '#FFA500';
+      ctx.shadowBlur = isRunning ? 10 : 0;
       ctx.stroke();
       ctx.shadowBlur = 0;
-    });
+    }
   }
 
   function updateUI() {
-    if (isRunning || isPaused || remainingSeconds < totalSeconds) {
-      // 計時中：顯示倒數文字，隱藏輸入框
+    // 判斷是否在倒數狀態
+    const isCounting = isRunning || isPaused || (remainingSeconds < totalSeconds && remainingSeconds > 0);
+
+    if (isCounting) {
       timerDisplay.style.display = 'block';
       durationInput.style.display = 'none';
       unitLabel.style.visibility = 'hidden';
       timerDisplay.textContent = formatTime(remainingSeconds);
     } else {
-      // 初始/清空狀態：顯示輸入框
       timerDisplay.style.display = 'none';
       durationInput.style.display = 'block';
       unitLabel.style.visibility = 'visible';
+      timerDisplay.style.color = "#ffffff";
     }
-
-    const currentTime = totalSeconds - remainingSeconds;
-    const segments = [{ start: 0, end: currentTime, color: '#FFA500' }];
-    restSegments.forEach(s => {
-      segments.push({ start: s.start, end: Math.min(currentTime, s.start + 12), color: '#00CC66' });
-    });
-    drawCircle(segments, totalSeconds);
+    drawCircle();
   }
 
   function startTimer() {
     if (isRunning) return;
 
-    if (!isPaused && remainingSeconds === totalSeconds) {
+    // 如果是重新開始（非暫停恢復），讀取輸入框數值
+    if (!isPaused) {
       const mins = parseInt(durationInput.value);
-      if (isNaN(mins) || mins <= 0) return;
+      if (isNaN(mins) || mins <= 0) {
+        alert("請輸入有效的分鐘數");
+        return;
+      }
       totalSeconds = mins * 60;
       remainingSeconds = totalSeconds;
       localStorage.setItem('totalSeconds', mins);
@@ -240,34 +240,43 @@
     isPaused = false;
     startBtn.disabled = true;
     stopBtn.disabled = false;
+    startBtn.textContent = "繼續";
 
-    scheduleNextSound();
     interval = setInterval(() => {
       remainingSeconds--;
+      localStorage.setItem('remaining', remainingSeconds);
+
       if (remainingSeconds <= 0) {
-        clearInterval(interval);
-        clearAll();
-        alert("時間到！");
-      } else {
-        localStorage.setItem('remaining', remainingSeconds);
+        finishTimer();
       }
     }, 1000);
   }
 
-  function scheduleNextSound() {
-    const delay = Math.floor(Math.random() * 120) + 180; // 3-5分鐘
-    soundTimeout = setTimeout(() => {
-      restSegments.push({ start: totalSeconds - remainingSeconds });
-      localStorage.setItem('restSegments', JSON.stringify(restSegments));
-      sound1.play();
-      setTimeout(() => sound2.play(), 12000);
-      scheduleNextSound();
-    }, delay * 1000);
+  function finishTimer() {
+    clearInterval(interval);
+    isRunning = false;
+    isPaused = false;
+    remainingSeconds = 0;
+    localStorage.removeItem('remaining');
+
+    // 播放音效
+    finishSound.play().catch(err => console.log("音效播放被攔截，請確保有過點擊行為", err));
+
+    // UI 反饋
+    timerDisplay.textContent = "00:00";
+    timerDisplay.style.color = "#ff4444";
+    startBtn.disabled = false;
+    startBtn.textContent = "開始";
+    stopBtn.disabled = true;
+
+    // 延遲跳出 alert 免得阻斷音效播放
+    setTimeout(() => {
+      alert("時間到！");
+    }, 100);
   }
 
   function stopTimer() {
     clearInterval(interval);
-    clearTimeout(soundTimeout);
     isRunning = false;
     isPaused = true;
     startBtn.disabled = false;
@@ -277,28 +286,29 @@
   function clearAll() {
     stopTimer();
     localStorage.removeItem('remaining');
-    localStorage.removeItem('restSegments');
-    remainingSeconds = totalSeconds;
-    restSegments = [];
     isPaused = false;
+    const mins = parseInt(durationInput.value) || 90;
+    totalSeconds = mins * 60;
+    remainingSeconds = totalSeconds;
+    startBtn.textContent = "開始";
     updateUI();
   }
 
+  // 事件監聽
   startBtn.addEventListener('click', startTimer);
   stopBtn.addEventListener('click', stopTimer);
   clearBtn.addEventListener('click', clearAll);
   volumeSlider.addEventListener('input', () => {
-    sound1.volume = sound2.volume = volumeSlider.value;
+    finishSound.volume = volumeSlider.value;
     localStorage.setItem('volume', volumeSlider.value);
   });
 
-  // 動畫循環
+  // 動畫循環 (處理圓環重繪)
   function animate() {
     updateUI();
     requestAnimationFrame(animate);
   }
   
-  stopBtn.disabled = true;
   animate();
 </script>
 
